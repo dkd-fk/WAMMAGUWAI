@@ -1,5 +1,5 @@
 // 최소한의 서비스 워커: 오프라인 시 캐시된 페이지를 보여줍니다.
-const CACHE_NAME = 'boiling-calc-v1';
+const CACHE_NAME = 'boiling-calc-v2';
 const ASSETS = [
   './',
   './index.html',
