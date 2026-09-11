@@ -208,10 +208,6 @@ details.accordion[open] summary .arrow{ transform: rotate(180deg); }
 .delta-up{ color: var(--ember); }
 .delta-down{ color: var(--blue-main); }
 
-.method-bar{ display:flex; height: 9px; border-radius: 6px; overflow:hidden; margin-top:10px; border:1px solid var(--line-hair); }
-.method-bar div{ height:100%; }
-.method-legend{ display:flex; gap:14px; margin-top:8px; font-size:10.5px; color: var(--steam); flex-wrap:wrap; }
-.method-legend span::before{ content:''; display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; vertical-align:middle; }
 
 .empty-note{ color: var(--steam); font-size: 12px; padding: 14px; text-align:center; border: 1px dashed var(--line-hair); border-radius: 10px; }
 
@@ -321,21 +317,14 @@ footer{ margin-top: 30px; text-align:center; color: var(--steam); font-size: 11p
     <summary>다른 사람들 실측 데이터도 보기 · 나도 참여하기<span class="arrow">▾</span></summary>
     <div class="accordion-body">
       <p>누구나 직접 재본 시간을 남길 수 있어요. 정확히 쟀든 대략 어림했든 상관없이 제출 가능하고, 표본이 쌓일수록 통계가 더 믿을만해져요.</p>
-      <div class="caveat" id="storageModeNotice" style="display:none;">⚠ 지금 이 버전은 공용 서버가 연결되기 전이라, 제보한 데이터가 <b>이 브라우저에만</b> 저장돼요. 다른 사람 데이터와는 아직 합쳐지지 않습니다.</div>
+      <div class="caveat" id="storageModeNotice" style="display:none;">⚠ 아직 데이터베이스 연결 설정이 안 됐어요. index.html의 SUPABASE_URL / SUPABASE_ANON_KEY 값을 채워주세요.</div>
 
       <div class="current-cond" id="currentCondBox">현재 설정: 물 500ml · 스테인리스 · 20°C</div>
 
-      <div class="form-row">
+      <div class="form-row" style="grid-template-columns: 1fr;">
         <div class="form-field">
           <label for="f_seconds">끓는 데 걸린 시간(초)</label>
           <input type="number" id="f_seconds" min="10" max="3600" step="1" placeholder="예: 245">
-        </div>
-        <div class="form-field">
-          <label for="f_method">측정 방식</label>
-          <select id="f_method">
-            <option value="stopwatch">스톱워치로 측정</option>
-            <option value="eyeball">눈대중/기억</option>
-          </select>
         </div>
       </div>
 
@@ -359,6 +348,7 @@ footer{ margin-top: 30px; text-align:center; color: var(--steam); font-size: 11p
   </footer>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* =========================================================================
    공식 실험 데이터: /data/official-experiment.json 에서 불러옵니다.
@@ -492,52 +482,30 @@ function renderOfficialCards(){
   }).join('');
 }
 
-/* ---------- 저장소 추상화: window.storage(claude.ai)가 없으면 localStorage로 대체 ----------
-   나중에 실제 공용 백엔드(Firebase 등)로 바꿀 때는 이 세 함수의 구현부만 교체하면 됩니다.
-   localStorage 폴백은 "이 브라우저에만" 저장되며 다른 방문자와 공유되지 않습니다. */
-const HAS_CLAUDE_STORAGE = (typeof window !== 'undefined' && !!window.storage);
-const LS_PREFIX = 'boiling-calc:';
+/* ---------- Supabase 연동 ----------
+   아래 두 값을 Supabase 프로젝트 설정(Project Settings → API)에서 복사해 넣으면 됩니다.
+   anon public 키는 클라이언트에 노출되는 용도라 그대로 코드에 넣어도 안전합니다. */
+const SUPABASE_URL = 'https://kjqavibbpzkfmihbndqi.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqcWF2aWJicHprZm1paGJuZHFpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwODU2MTEsImV4cCI6MjEwNDY2MTYxMX0.humWvcgf2GEnudfWDWBPNJhPK-OXEyr7UKbq3W2dhi8';
+const SUPABASE_CONFIGURED = !SUPABASE_URL.includes('YOUR-PROJECT') && !SUPABASE_ANON_KEY.includes('YOUR-ANON');
 
-async function storageSet(key, value){
-  if (HAS_CLAUDE_STORAGE){ return window.storage.set(key, value, true); }
-  localStorage.setItem(LS_PREFIX + key, value);
-  return { key, value, shared: false };
-}
-async function storageGet(key){
-  if (HAS_CLAUDE_STORAGE){ return window.storage.get(key, true); }
-  const v = localStorage.getItem(LS_PREFIX + key);
-  return v === null ? null : { key, value: v, shared: false };
-}
-async function storageListKeys(prefix){
-  if (HAS_CLAUDE_STORAGE){
-    const r = await window.storage.list(prefix, true);
-    return (r && r.keys) ? r.keys : [];
-  }
-  const keys = [];
-  for (let i = 0; i < localStorage.length; i++){
-    const k = localStorage.key(i);
-    if (k && k.startsWith(LS_PREFIX + prefix)) keys.push(k.slice(LS_PREFIX.length));
-  }
-  return keys;
+let supabaseClient = null;
+if (SUPABASE_CONFIGURED && window.supabase){
+  supabaseClient = window.supabase.createClient(
+    SUPABASE_URL.startsWith('http') ? SUPABASE_URL : `https://${SUPABASE_URL}`,
+    SUPABASE_ANON_KEY
+  );
 }
 
 /* ---------- 크라우드소싱: 저장/집계 ---------- */
 async function loadCrowdEntries(){
+  if (!supabaseClient) return [];
   try{
-    const keys = await storageListKeys('crowd:entry:');
-    const entries = [];
-    for (const key of keys){
-      try{
-        const r = await storageGet(key);
-        if (r && r.value){
-          const parsed = JSON.parse(r.value);
-          if (parsed && typeof parsed.volume === 'number' && typeof parsed.seconds === 'number'){
-            entries.push(parsed);
-          }
-        }
-      }catch(e){ /* skip */ }
-    }
-    return entries;
+    const { data, error } = await supabaseClient
+      .from('crowd_entries')
+      .select('volume, material, temp, seconds');
+    if (error){ throw error; }
+    return data || [];
   }catch(e){
     console.error('crowd entries load failed', e);
     return [];
@@ -546,7 +514,6 @@ async function loadCrowdEntries(){
 
 function summarizeCrowd(entries){
   const byMaterial = {};
-  let stopwatchCount = 0, eyeballCount = 0;
 
   entries.forEach(entry=>{
     const theo = theoreticalSeconds(entry.volume, entry.temp);
@@ -554,7 +521,6 @@ function summarizeCrowd(entries){
     const ratio = entry.seconds / theo;
     if (!byMaterial[entry.material]) byMaterial[entry.material] = { ratios: [] };
     byMaterial[entry.material].ratios.push(ratio);
-    if (entry.method === 'eyeball') eyeballCount++; else stopwatchCount++;
   });
 
   Object.keys(byMaterial).forEach(key=>{
@@ -565,7 +531,7 @@ function summarizeCrowd(entries){
     byMaterial[key] = { n, meanRatio, std: Math.sqrt(variance) };
   });
 
-  return { byMaterial, total: entries.length, stopwatchCount, eyeballCount };
+  return { byMaterial, total: entries.length };
 }
 
 function renderCrowdStats(){
@@ -593,9 +559,6 @@ function renderCrowdStats(){
     </tr>`;
   }).filter(Boolean).join('');
 
-  const stopwatchPct = Math.round(crowdSummary.stopwatchCount / crowdSummary.total * 100);
-  const eyeballPct = 100 - stopwatchPct;
-
   area.innerHTML = `
     <p style="font-size:12.5px; color:var(--steam); margin:16px 0 10px;">지금까지 <b style="color:var(--ink);">${crowdSummary.total}건</b> 제보됐어요.</p>
     <table class="stats-table">
@@ -604,14 +567,6 @@ function renderCrowdStats(){
       </tr></thead>
       <tbody>${rows || '<tr><td colspan="5" style="color:#6E8A93;">재질별 표본이 아직 없어요.</td></tr>'}</tbody>
     </table>
-    <div class="method-bar">
-      <div style="width:${stopwatchPct}%; background:#3B6E86;"></div>
-      <div style="width:${eyeballPct}%; background:#B98A4C;"></div>
-    </div>
-    <div class="method-legend">
-      <span style="--dot:#3B6E86;"><span style="background:#3B6E86; display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px;"></span>스톱워치 ${crowdSummary.stopwatchCount}건</span>
-      <span><span style="background:#B98A4C; display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px;"></span>눈대중 ${crowdSummary.eyeballCount}건</span>
-    </div>
     <div class="caveat">⚠ 제보 데이터는 참여자마다 화구 세기, 뚜껑 여부 등이 달라 공식 실험만큼 조건이 통제되지 않았어요. 표본이 적은 재질은 참고만 해주세요.</div>
   `;
 }
@@ -628,7 +583,6 @@ document.getElementById('submitBtn').addEventListener('click', async ()=>{
   const btn = document.getElementById('submitBtn');
   const statusEl = document.getElementById('submitStatus');
   const seconds = parseFloat(document.getElementById('f_seconds').value);
-  const method = document.getElementById('f_method').value;
 
   if (!seconds || seconds < 10 || seconds > 3600){
     statusEl.textContent = '걸린 시간을 10~3600초 사이로 입력해주세요.'; statusEl.className='status-msg err'; return;
@@ -637,15 +591,12 @@ document.getElementById('submitBtn').addEventListener('click', async ()=>{
   btn.disabled = true;
   statusEl.textContent = '저장 중...'; statusEl.className = 'status-msg';
 
-  const entry = {
-    volume: state.volume, material: state.material, temp: state.temp,
-    seconds, method, submittedAt: new Date().toISOString()
-  };
-  const key = `crowd:entry:${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-
   try{
-    const result = await storageSet(key, JSON.stringify(entry));
-    if (!result){ throw new Error('empty storage result'); }
+    if (!supabaseClient){ throw new Error('supabase not configured'); }
+    const { error } = await supabaseClient
+      .from('crowd_entries')
+      .insert([{ volume: state.volume, material: state.material, temp: state.temp, seconds }]);
+    if (error){ throw error; }
     statusEl.textContent = '제보 감사합니다! 아래 통계에 반영됐어요.'; statusEl.className = 'status-msg ok';
     document.getElementById('f_seconds').value = '';
     await refreshCrowdStats();
@@ -668,8 +619,9 @@ async function init(){
     return;
   }
 
-  if (!HAS_CLAUDE_STORAGE){
+  if (!SUPABASE_CONFIGURED){
     document.getElementById('storageModeNotice').style.display = 'block';
+    document.getElementById('submitBtn').disabled = true;
   }
 
   renderOfficialCards();
